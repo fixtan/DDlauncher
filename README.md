@@ -57,10 +57,12 @@ npm run installer        # NSIS のインストーラーも作る
 - 引数付きのアプリ起動は、ブックマークの「コマンド」で書く（例: `"C:\Tools\app.exe" --flag`）。
 - コマンドは cmd.exe で実行します。PowerShell・管理者での実行は未対応。
 - アンインストールしても、自動起動の登録（レジストリの Run）は残る場合があります。設定で自動起動をオフにしてから消してください。
-- アイコンは仮のものです。差し替えるときは、PNG を用意して `npx tauri icon <png>` を実行します。
 - ホットキーに Win キーは使えません（OS が使うため）。
 
 ## 開発メモ
 要件は `docs/requirements.md`、配置エンジンの試作とテストは `docs/prototype/`
 （`node docs/prototype/test-engine.js src/tile-engine.js`）、
-動作確認の観察項目は `docs/open-close-test.md`、`docs/apps-list-test.md`、`docs/tiles-test.md`（#1〜121）。
+動作確認の観察項目は `docs/open-close-test.md`、`docs/apps-list-test.md`、`docs/tiles-test.md`（#1〜129）。
+
+## ライセンス
+MIT License（`LICENSE` を参照）。
