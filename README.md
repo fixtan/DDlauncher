@@ -21,7 +21,7 @@ Win10風のタイル型スタートメニューランチャー。Explorerの内�
 - **バックアップ**: 設定・タイル・左端・ブックマークを1つの JSON に書き出し／読み込み。
 - 表示位置（左右下・上・中央・カーソル位置）、透明度、フォーカスが外れたら閉じる、など。
 
-使い方は `docs/usage.md`、変更点は `CHANGELOG.md`。
+使い方は `docs/usage.md`、変更点は `CHANGELOG.md`。ビルドの注意は `docs/build-notes.md`。
 
 ## インストール
 `npm run installer` で作った `src-tauri/target/release/bundle/nsis/DDlauncher_0.1.0_x64-setup.exe` を実行します（管理者権限は不要。ユーザー単位でインストールされます）。
