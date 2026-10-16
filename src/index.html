@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DDlauncher</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="panel">
+  <nav id="rail">
+    <div id="railItems"></div>
+    <div id="railBottom">
+      <button id="openBookmarks" title="ブックマーク">🔖</button>
+      <button id="openSearch" title="検索 (Ctrl+S)">🔎</button>
+      <button id="openSettings" title="設定とログ">⚙</button>
+    </div>
+  </nav>
+  <aside id="left">
+    <div id="searchBar" hidden><input type="text" id="searchInput" placeholder="アプリを検索…" autocomplete="off" spellcheck="false"></div>
+    <div id="apps" class="apps"></div>
+
+  </aside>
+
+  <main id="tiles">
+    <div id="tileArea">
+      <div id="tileGrid"></div>
+      <div id="ghost"></div>
+      <div id="emptyHint">左の一覧でアプリを右クリック →<br>「スタートにピン留めする」でタイルを追加</div>
+    </div>
+  </main>
+</div>
+<div id="menu"></div>
+<div id="flyout" hidden></div>
+<div id="dialog" hidden>
+  <div id="dialogBox" role="dialog" aria-label="設定">
+    <div id="dialogHead">
+      <div id="tabs">
+        <button class="tab active" data-tab="general">一般</button>
+        <button class="tab" data-tab="tile">タイル</button>
+        <button class="tab" data-tab="rail">左端</button>
+        <button class="tab" data-tab="bm">ブックマーク</button>
+        <button class="tab" data-tab="log">ログ</button>
+      </div>
+      <button id="dialogClose" title="閉じる (Esc)">✕</button>
+    </div>
+    <div id="dialogBody">
+      <section class="pane controls" data-pane="general">
+        <label>表示位置
+          <select id="anchor">
+            <option value="bottom-left">左下</option>
+            <option value="bottom-center">中央下</option>
+            <option value="bottom-right">右下</option>
+            <option value="top-left">左上</option>
+            <option value="top-center">中央上</option>
+            <option value="top-right">右上</option>
+            <option value="center">画面の中央</option>
+            <option value="cursor">アイコンの位置（押した場所）</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="hideOnBlur">フォーカスが外れたら閉じる</label>
+        <label>透明度
+          <input type="range" id="opacity" min="0.05" max="1" step="0.01">
+          <span id="opacityValue" class="muted"></span>
+        </label>
+        <label><input type="checkbox" id="autostart">Windows 起動時に自動で起動する</label>
+        <div class="hotkeyRow">
+          <label>ホットキー（どこからでも開く）
+            <input type="text" id="hotkey" readonly placeholder="クリックしてキーを押す">
+            <button id="hotkeyClear">解除</button>
+          </label>
+          <div id="hotkeyMsg" class="muted">Ctrl / Alt / Shift のどれかと組み合わせてください（例: Ctrl+Alt+Space）。Win キーは OS が使うので避けてください。</div>
+        </div>
+        <label><input type="checkbox" id="searchOnHotkey">ホットキーで開いたら、検索欄から始める</label>
+        <details id="advanced">
+          <summary>詳細</summary>
+          <label>ちらつき防止ガード(ms)
+            <input type="number" id="guardMs" min="0" max="3000" step="50">
+          </label>
+          <div class="muted">アイコンを押して開閉するとき、閉じた直後の再オープンを無視する時間。</div>
+        </details>
+        <div class="backupRow">
+          <div>バックアップ <span class="muted">（設定・タイル・左端・ブックマーク）</span></div>
+          <div class="bmFormRow"><button id="backupExport">書き出す…</button><button id="backupImport">読み込む…</button><span id="backupMsg" class="muted"></span></div>
+          <div class="muted">アプリやフォルダはパスで持っているので、別のPCでは同じ場所に無いものは動きません。</div>
+        </div>
+        <div class="bottomRow"><button id="quit">アプリを終了</button></div>
+      </section>
+      <section class="pane controls" data-pane="tile" hidden>
+        <label>タイルの列数
+          <select id="tileCols"><option value="6">6（中が3つ）</option><option value="8">8（中が4つ）</option></select>
+        </label>
+        <label><input type="checkbox" id="tileGravity">タイルを上に詰める</label>
+      </section>
+      <section class="pane controls" data-pane="rail" hidden>
+        <div class="muted">左端の列に並べるショートカット。エクスプローラーのファイルを左端の列にドロップするか、左の一覧で右クリック →「左端に追加する」でも追加できます。</div>
+        <div id="railList"></div>
+        <div class="railAdd">
+          <input type="text" id="railName" placeholder="表示名（例: ディスプレイ設定）">
+          <input type="text" id="railPath" placeholder="パス / コマンド（例: ms-settings:display, control.exe, C:\Tools）">
+          <button id="railAdd">追加</button>
+        </div>
+      </section>
+      <section class="pane controls" data-pane="bm" hidden>
+        <div class="muted">左端の 🔖 を押すと出るリスト。アプリ・フォルダ・コマンドを、グループに分けて登録できます。ファイルやフォルダを 🔖 にドロップしても追加できます。</div>
+        <div id="bmList"></div>
+        <div class="bmForm">
+          <div class="bmFormRow">
+            <select id="bmKind">
+              <option value="app">アプリ</option>
+              <option value="folder">フォルダ</option>
+              <option value="cmd">コマンド</option>
+              <option value="dir">グループ</option>
+            </select>
+            <input type="text" id="bmName" placeholder="表示名（空なら自動）">
+          </div>
+          <div id="bmPathRow"><input type="text" id="bmPath" placeholder="パス（例: C:\Tools\app.exe / D:\work）"></div>
+          <div id="bmCmdRows" hidden>
+            <textarea id="bmCmd" rows="4" placeholder="コマンド（複数行可）&#10;例:&#10;cd C:\Users\me\proj&#10;npm run build"></textarea>
+            <input type="text" id="bmCwd" placeholder="作業フォルダ（省略可）">
+            <label><input type="checkbox" id="bmKeep" checked>実行後もウィンドウを閉じない</label>
+          </div>
+          <label>所属 <select id="bmParent"></select></label>
+          <div class="bmFormRow"><button id="bmSubmit">追加</button><button id="bmCancel" hidden>キャンセル</button><span id="bmMsg" class="muted"></span></div>
+        </div>
+      </section>
+      <section class="pane" data-pane="log" hidden>
+        <pre id="log"></pre>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="apps.js"></script>
+<script src="rail.js"></script>
+<script src="search.js"></script>
+<script src="bookmarks.js"></script>
+<script src="tile-engine.js"></script>
+<script src="tiles.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

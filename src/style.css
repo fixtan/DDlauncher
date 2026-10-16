@@ -1,0 +1,199 @@
+:root { --alpha: .92; --text: #e8eaf0; --muted: #8a90a0; --accent: #4cc2ff; }
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%;
+  background: transparent; /* ウィンドウ自体を透過させるため */
+  color: var(--text);
+  font: 14px/1.5 "Segoe UI", "Yu Gothic UI", sans-serif;
+  overflow: hidden;
+}
+#panel {
+  height: 100%;
+  background: rgba(24, 26, 32, var(--alpha));
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  display: flex; flex-direction: row; overflow: hidden;
+}
+.muted { color: var(--muted); font-size: 12px; }
+.controls { display: grid; gap: 8px; }
+.controls label { display: flex; align-items: center; gap: 8px; }
+select, input[type=number] {
+  background: #2b2f3a; color: var(--text);
+  border: 1px solid rgba(255, 255, 255, .15); border-radius: 4px; padding: 3px 8px; font: inherit;
+}
+input[type=number] { width: 90px; }
+button {
+  background: #2b2f3a; color: var(--text); cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .15); border-radius: 4px; padding: 4px 12px; font: inherit;
+}
+button:hover { background: #363b48; }
+#log {
+  height: 160px; margin: 0; overflow: auto; padding: 8px;
+  background: rgba(0, 0, 0, .35); border-radius: 6px;
+  font: 12px/1.5 Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+}
+
+/* ---- 左：アプリ一覧 ---- */
+#left {
+  width: 320px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid rgba(255, 255, 255, .08);
+}
+.apps { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 4px 6px 8px; }
+.apps::-webkit-scrollbar { width: 8px; }
+.apps::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .18); border-radius: 4px; }
+.heading {
+  padding: 10px 8px 2px; font-weight: 600; color: var(--accent);
+}
+.row {
+  display: flex; align-items: center; gap: 10px;
+  height: 34px; padding: 0 8px; border-radius: 4px; cursor: default; user-select: none;
+}
+.row:hover { background: rgba(255, 255, 255, .09); }
+.row .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ico {
+  width: 24px; height: 24px; flex: none; border-radius: 4px;
+  display: grid; place-items: center; font-size: 13px; font-weight: 600; color: #fff;
+}
+.ico img { width: 24px; height: 24px; object-fit: contain; display: block; }
+.folder-ico { background: none; font-size: 18px; }
+.chev { color: var(--muted); transition: none; }
+.folder.open .chev { transform: rotate(180deg); }
+.kids { padding-left: 18px; }
+.kids[hidden] { display: none; }
+
+/* ---- 左端のアイコン列 ---- */
+#rail {
+  width: 44px; flex: none; display: flex; flex-direction: column; align-items: center;
+  padding: 6px 0; background: rgba(0, 0, 0, .22); border-right: 1px solid rgba(255, 255, 255, .08);
+}
+#railItems { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; width: 100%; align-items: center; scrollbar-width: none; }
+#railBottom { display: flex; flex-direction: column; gap: 2px; align-items: center; }
+.railBtn, #openSettings, #openSearch, #openBookmarks {
+  width: 36px; height: 36px; flex: none; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent;
+}
+.railBtn:hover, #openSettings:hover, #openSearch:hover, #openBookmarks:hover, #openBookmarks.active { background: rgba(255, 255, 255, .12); }
+#openSettings, #openSearch, #openBookmarks { font-size: 18px; color: var(--muted); }
+#openSettings:hover, #openSearch:hover, #openBookmarks:hover { color: var(--text); }
+#rail.drop-over { background: rgba(76, 194, 255, .22); outline: 2px dashed var(--accent); outline-offset: -3px; }
+.railRow { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, .07); }
+.railRowText { flex: 1; min-width: 0; }
+.railRowText .n, .railRowText .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.railAdd { display: grid; gap: 6px; }
+.railAdd input[type=text] {
+  background: #2b2f3a; color: var(--text); border: 1px solid rgba(255, 255, 255, .15); border-radius: 4px; padding: 5px 8px; font: inherit;
+}
+.railAdd button { justify-self: start; }
+
+/* 設定ダイアログ。透明度の影響を受けない不透明な面にする */
+#dialog { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: rgba(0, 0, 0, .45); }
+#dialog[hidden] { display: none; }
+#dialogBox {
+  width: min(560px, 92vw); height: min(520px, 92vh); display: flex; flex-direction: column;
+  background: #2d3342; border: 1px solid rgba(255, 255, 255, .22); border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .6);
+}
+#dialogHead { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, .12); padding: 6px 8px 0; }
+#tabs { display: flex; gap: 2px; }
+.tab { border: 0; border-bottom: 2px solid transparent; border-radius: 4px 4px 0 0; background: transparent; padding: 6px 14px; color: var(--muted); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+#dialogClose { border: 0; background: transparent; padding: 4px 10px; color: var(--muted); }
+#dialogBody { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
+.pane[hidden] { display: none; }
+.pane.controls { align-content: start; gap: 14px; grid-template-columns: minmax(0, 1fr); } /* 長いパスで横にはみ出さない */
+#advanced summary { cursor: pointer; color: var(--muted); }
+#advanced label { margin-top: 8px; }
+.bottomRow { margin-top: 8px; }
+#dialogBody { position: relative; }
+.pane[data-pane=log] { position: absolute; inset: 10px; } /* ログの行数で、ダイアログの高さが変わらないようにする */
+#dialog #log { height: 100%; background: #14161c; }
+
+/* ---- 右：タイル領域 ---- */
+#tiles { flex: 1; min-width: 0; overflow: auto; padding: 16px; }
+#tiles::-webkit-scrollbar { width: 8px; }
+#tiles::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .18); border-radius: 4px; }
+#tileArea { position: relative; user-select: none; touch-action: none; margin: 0 auto; }
+#tileGrid, #ghost { position: absolute; pointer-events: none; }
+#tileGrid { inset: 0; opacity: 0; }
+#tileArea.dragging-now #tileGrid, #tileArea.drop-over #tileGrid { opacity: 1; } /* グリッドは、ドラッグ中だけ見せる */
+.cell { position: absolute; background: rgba(255, 255, 255, .05); }
+#ghost { display: none; border: 2px dashed var(--accent); background: rgba(76, 194, 255, .15); z-index: 1; }
+.tile {
+  position: absolute; z-index: 2; overflow: hidden; cursor: default;
+  background: rgba(255, 255, 255, .14); display: grid; place-items: center;
+}
+.tile:hover { background: rgba(255, 255, 255, .24); outline: 2px solid rgba(255, 255, 255, .35); outline-offset: -2px; }
+.tile.dragging { z-index: 10; opacity: .85; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); }
+.tile .icon {
+  display: grid; place-items: center; border-radius: 6px; pointer-events: none;
+  color: #fff; font-weight: 600;
+}
+.tile .icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.tile .label {
+  position: absolute; left: 6px; right: 6px; bottom: 4px; pointer-events: none;
+  font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile[data-size=S] .icon { width: 40px; height: 40px; font-size: 20px; }
+.tile[data-size=S] .label { display: none; }
+.tile[data-size=M] .icon, .tile[data-size=W] .icon { width: 64px; height: 64px; font-size: 30px; margin-bottom: 14px; }
+.tile[data-size=L] .icon { width: 128px; height: 128px; font-size: 60px; margin-bottom: 16px; }
+#emptyHint { position: absolute; left: 0; right: 0; top: 40px; text-align: center; color: var(--muted); line-height: 2; pointer-events: none; }
+
+/* ---- 右クリックメニュー ---- */
+#menu {
+  position: fixed; display: none; z-index: 100; flex-direction: column; min-width: 160px;
+  background: #2d3342; border: 1px solid rgba(255, 255, 255, .22); border-radius: 6px; padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+}
+#menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; border-radius: 3px; padding: 6px 10px; }
+#menu button:hover { background: #40475a; }
+#menu .sep { height: 1px; margin: 4px 2px; background: rgba(255, 255, 255, .15); }
+
+/* ---- 検索 ---- */
+#searchBar { flex: none; padding: 8px 8px 2px; }
+#searchBar input {
+  width: 100%; background: #2b2f3a; color: var(--text); font: inherit;
+  border: 1px solid var(--accent); border-radius: 4px; padding: 6px 10px; outline: none;
+}
+.apps.searching > :not(#results) { display: none; }
+#results { display: none; }
+.apps.searching > #results { display: block; }
+#results .row.sel { background: rgba(76, 194, 255, .28); }
+.searchHint { padding: 10px 8px; }
+
+.hotkeyRow label { flex-wrap: wrap; }
+#hotkey { width: 220px; background: #2b2f3a; color: var(--text); border: 1px solid rgba(255, 255, 255, .15); border-radius: 4px; padding: 4px 8px; font: inherit; }
+#hotkey:focus { border-color: var(--accent); outline: none; }
+#hotkeyMsg { margin-top: 4px; }
+
+/* 一覧からドラッグ中、カーソルについてくる名前 */
+.dragChip {
+  position: fixed; z-index: 300; pointer-events: none; max-width: 240px;
+  padding: 4px 10px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: #2d3342; border: 1px solid var(--accent); opacity: .92; box-shadow: 0 6px 18px rgba(0, 0, 0, .5);
+}
+
+/* ---- ブックマーク ---- */
+#openBookmarks.drop-over { background: rgba(76, 194, 255, .35); outline: 2px dashed var(--accent); }
+#flyout {
+  position: fixed; left: 48px; bottom: 8px; z-index: 150; width: 320px; max-height: min(70vh, 520px); overflow-y: auto;
+  background: #2d3342; border: 1px solid rgba(255, 255, 255, .22); border-radius: 8px; padding: 6px 4px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .55);
+}
+#flyout[hidden] { display: none; }
+#flyout .row { height: 32px; }
+#flyout .row .chev { transition: none; }
+#flyout .row.open .chev { transform: rotate(180deg); }
+.bmForm { display: grid; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .12); }
+.bmFormRow { display: flex; gap: 8px; align-items: center; }
+.bmFormRow input[type=text] { flex: 1; }
+.bmForm input[type=text], .bmForm textarea {
+  background: #2b2f3a; color: var(--text); border: 1px solid rgba(255, 255, 255, .15); border-radius: 4px; padding: 5px 8px; font: inherit; width: 100%;
+}
+.bmForm textarea { font: 12px/1.5 Consolas, monospace; resize: vertical; margin-bottom: 6px; }
+#bmCmdRows input[type=text] { margin-bottom: 6px; }
+
+#bmList, #railList { min-width: 0; }
+
+.backupRow { display: grid; gap: 6px; padding-top: 4px; }
+#backupMsg { word-break: break-all; }

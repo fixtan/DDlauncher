@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tile Prototype</title>
+<style>
+:root{
+  --bg:#1b1d23; --text:#e8eaf0; --muted:#8a90a0; --accent:#4cc2ff;
+  --tile:rgba(255,255,255,.14); --tile-hover:rgba(255,255,255,.24);
+  --grid:rgba(255,255,255,.04);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 "Segoe UI","Yu Gothic UI",sans-serif;}
+header{padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)}
+header label{display:flex;align-items:center;gap:4px;color:var(--muted)}
+button,select{background:#2b2f3a;color:var(--text);border:1px solid rgba(255,255,255,.15);border-radius:4px;padding:4px 10px;font:inherit;cursor:pointer}
+button:hover{background:#363b48}
+.hint{padding:6px 16px;color:var(--muted);font-size:12px}
+main{padding:16px;display:flex;justify-content:center}
+#area{position:relative;user-select:none;touch-action:none;outline:1px dashed rgba(255,255,255,.08)}
+#grid,#ghost{position:absolute;pointer-events:none}
+#grid{inset:0}
+.cell{position:absolute;background:var(--grid)}
+#ghost{display:none;border:2px dashed var(--accent);background:rgba(76,194,255,.15);z-index:1}
+.tile{position:absolute;background:var(--tile);cursor:grab;display:grid;place-items:center;overflow:hidden;z-index:2}
+.tile:hover{background:var(--tile-hover)}
+.tile.dragging{z-index:10;opacity:.85;cursor:grabbing;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.icon{display:grid;place-items:center;border-radius:6px;color:#fff;font-weight:600;pointer-events:none}
+.label{position:absolute;left:6px;right:6px;bottom:4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.tile[data-size=S] .icon{width:28px;height:28px;font-size:15px}
+.tile[data-size=S] .label{display:none}
+.tile[data-size=M] .icon,.tile[data-size=W] .icon{width:40px;height:40px;font-size:20px;margin-bottom:14px}
+.tile[data-size=L] .icon{width:64px;height:64px;font-size:32px;margin-bottom:14px}
+#menu{position:fixed;display:none;z-index:100;background:#2b2f3a;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px;flex-direction:column;min-width:110px}
+#menu button{display:block;width:100%;text-align:left;border:0;background:transparent;border-radius:3px}
+#menu button:hover{background:#40475a}
+details{padding:0 16px 16px;color:var(--muted)}
+textarea{width:100%;height:160px;background:#14161b;color:var(--text);border:1px solid rgba(255,255,255,.12);font:12px/1.4 Consolas,monospace}
+</style>
+</head>
+<body>
+<header>
+  <label>列数
+    <select id="cols"><option value="6">6（中3つ分）</option><option value="8">8（中4つ分）</option></select>
+  </label>
+  <label><input type="checkbox" id="gravity">上詰め</label>
+  <label><input type="checkbox" id="showGrid" checked>グリッド表示</label>
+  <button id="addM">中を追加</button>
+  <button id="addS4">小を4つ追加</button>
+  <button id="clear">全消去</button>
+</header>
+<div class="hint">ドラッグで移動／右クリックでサイズ変更・削除／ファイルをドロップで追加（ここではアイコンは頭文字。実アイコンはTauri側で取得予定）</div>
+<main>
+  <div id="area"><div id="grid"></div><div id="ghost"></div></div>
+</main>
+<div id="menu"></div>
+<details>
+  <summary>保存データ（JSON）</summary>
+  <textarea id="json" spellcheck="false"></textarea>
+  <div><button id="load">このJSONを読み込む</button></div>
+</details>
+
+<script>
+// ENGINE-START
+const SIZES = { S:{w:1,h:1}, M:{w:2,h:2}, W:{w:4,h:2}, L:{w:4,h:4} };
+const SNAP  = { S:1, M:2, W:2, L:2 };          // 位置のスナップ単位（Win10実機との差は要確認）
+const SIZE_LABEL = { S:'小', M:'中', W:'横長', L:'大' };
+
+function overlaps(a,b){ return a.x < b.x+b.w && b.x < a.x+a.w && a.y < b.y+b.h && b.y < a.y+a.h; }
+function snapTo(v,step){ return Math.round(v/step)*step; }
+function snapUp(v,step){ return Math.ceil(v/step)*step; }
+function clone(tiles){ return tiles.map(t => ({...t})); }
+function applySize(t){ const s = SIZES[t.size]; t.w = s.w; t.h = s.h; }
+function byPos(a,b){ return a.y-b.y || a.x-b.x; }
+
+// 位置をスナップして、領域内に収める
+function fit(t,cols){
+  const st = SNAP[t.size];
+  const maxX = Math.floor((cols - t.w) / st) * st;
+  t.x = Math.max(0, Math.min(snapTo(t.x, st), maxX));
+  t.y = Math.max(0, snapTo(t.y, st));
+}
+
+// 動かしたタイル(movedId)は固定、重なった他のタイルを下へ押し下げる
+function resolve(tiles, movedId){
+  const queue = [tiles.find(t => t.id === movedId)];
+  let guard = 0;
+  while(queue.length){
+    const m = queue.shift();
+    for(const c of [...tiles].sort(byPos)){
+      if(c === m || c.id === movedId) continue;
+      if(overlaps(m,c)){
+        c.y = snapUp(m.y + m.h, SNAP[c.size]);
+        queue.push(c);
+      }
+    }
+    if(++guard > 5000) throw new Error('resolve loop');
+  }
+}
+
+// 任意の状態を「重ならない・はみ出さない」状態に正規化
+function settle(tiles, cols){
+  const out = clone(tiles);
+  out.forEach(t => { applySize(t); fit(t, cols); });
+  out.sort(byPos);
+  const placed = [];
+  for(const t of out){
+    while(placed.some(p => overlaps(t,p))) t.y += SNAP[t.size];
+    placed.push(t);
+  }
+  return out;
+}
+
+// 上詰め（各タイルをできるだけ上へ）
+function compact(tiles){
+  const out = clone(tiles).sort(byPos);
+  const placed = [];
+  for(const t of out){
+    const st = SNAP[t.size];
+    let y = 0;
+    for(;;){
+      t.y = y;
+      if(!placed.some(p => overlaps(t,p))) break;
+      y += st;
+    }
+    placed.push(t);
+  }
+  return out;
+}
+
+// 空いている最初の場所
+function findFree(tiles, size, cols){
+  const s = SIZES[size], st = SNAP[size];
+  const probe = { w:s.w, h:s.h, x:0, y:0 };
+  for(let y = 0; ; y += st){
+    for(let x = 0; x <= cols - s.w; x += st){
+      probe.x = x; probe.y = y;
+      if(!tiles.some(t => overlaps(probe,t))) return { x, y };
+    }
+  }
+}
+
+function moveTile(tiles, id, x, y, cols, gravity){
+  const out = clone(tiles);
+  const t = out.find(t => t.id === id);
+  t.x = x; t.y = y; fit(t, cols);
+  resolve(out, id);
+  return gravity ? compact(out) : out;
+}
+
+function resizeTile(tiles, id, size, cols, gravity){
+  const out = clone(tiles);
+  const t = out.find(t => t.id === id);
+  t.size = size; applySize(t); fit(t, cols);
+  resolve(out, id);
+  return gravity ? compact(out) : out;
+}
+
+// 読み込んだJSONの検証＋正規化
+function sanitize(raw){
+  const cols = raw && raw.cols === 8 ? 8 : 6;
+  const gravity = !!(raw && raw.gravity);
+  const seen = new Set();
+  const tiles = [];
+  for(const r of (raw && Array.isArray(raw.tiles) ? raw.tiles : [])){
+    if(!r || typeof r !== 'object') continue;
+    if(!Number.isInteger(r.id) || seen.has(r.id) || !SIZES[r.size]) continue;
+    if(!Number.isFinite(r.x) || !Number.isFinite(r.y)) continue;
+    seen.add(r.id);
+    tiles.push({ id:r.id, name:String(r.name ?? '').slice(0,100), path:String(r.path ?? '').slice(0,500),
+                 size:r.size, x:r.x, y:r.y, w:0, h:0 });
+  }
+  return { cols, gravity, tiles: settle(tiles, cols) };
+}
+// ENGINE-END
+
+// ===== UI =====
+const CELL = 56, GAP = 4, STEP = CELL + GAP, KEY = 'tile-proto-v1';
+const state = { cols:6, gravity:false, showGrid:true, tiles:[], nextId:1 };
+const area = document.getElementById('area');
+const gridLayer = document.getElementById('grid');
+const ghost = document.getElementById('ghost');
+const menu = document.getElementById('menu');
+const jsonBox = document.getElementById('json');
+const els = new Map();
+let drag = null, gridKey = '';
+
+function hue(str){ let h = 0; for(const ch of str) h = (h*31 + ch.codePointAt(0)) >>> 0; return h % 360; }
+
+function makeTileEl(t){
+  const el = document.createElement('div');
+  el.className = 'tile'; el.dataset.id = t.id;
+  el.innerHTML = '<div class="icon"></div><div class="label"></div>';
+  return el;
+}
+function updateTileEl(el,t){
+  el.dataset.size = t.size;
+  el.style.width = (t.w*STEP - GAP) + 'px';
+  el.style.height = (t.h*STEP - GAP) + 'px';
+  const icon = el.firstChild, label = el.lastChild;
+  icon.textContent = (t.name || '?').trim().charAt(0).toUpperCase() || '?';
+  icon.style.background = 'hsl(' + hue(t.name) + ' 55% 45%)';
+  label.textContent = t.name;
+  el.title = t.name + (t.path ? '\n' + t.path : '');
+}
+function drawGrid(rows){
+  const key = state.showGrid + ':' + state.cols + ':' + rows;
+  if(key === gridKey) return;
+  gridKey = key;
+  gridLayer.innerHTML = '';
+  if(!state.showGrid) return;
+  const frag = document.createDocumentFragment();
+  for(let r = 0; r < rows; r++) for(let c = 0; c < state.cols; c++){
+    const d = document.createElement('div'); d.className = 'cell';
+    d.style.left = c*STEP + 'px'; d.style.top = r*STEP + 'px';
+    d.style.width = CELL + 'px'; d.style.height = CELL + 'px';
+    frag.appendChild(d);
+  }
+  gridLayer.appendChild(frag);
+}
+function render(layout = state.tiles, dragInfo = null){
+  area.style.width = (state.cols*STEP - GAP) + 'px';
+  const maxBottom = layout.reduce((m,t) => Math.max(m, t.y + t.h), 0);
+  const rows = Math.max(10, maxBottom + 4);
+  area.style.height = (rows*STEP - GAP) + 'px';
+  drawGrid(rows);
+  const seen = new Set();
+  for(const t of layout){
+    seen.add(t.id);
+    let el = els.get(t.id);
+    if(!el){ el = makeTileEl(t); els.set(t.id, el); area.appendChild(el); }
+    updateTileEl(el, t);
+    if(dragInfo && t.id === dragInfo.id){
+      el.classList.add('dragging');
+      el.style.left = dragInfo.px + 'px'; el.style.top = dragInfo.py + 'px';
+    } else {
+      el.classList.remove('dragging');
+      el.style.left = t.x*STEP + 'px'; el.style.top = t.y*STEP + 'px';
+    }
+  }
+  for(const [id,el] of els) if(!seen.has(id)){ el.remove(); els.delete(id); }
+  if(dragInfo){
+    const g = layout.find(t => t.id === dragInfo.id);
+    ghost.style.display = 'block';
+    ghost.style.left = g.x*STEP + 'px'; ghost.style.top = g.y*STEP + 'px';
+    ghost.style.width = (g.w*STEP - GAP) + 'px'; ghost.style.height = (g.h*STEP - GAP) + 'px';
+  } else ghost.style.display = 'none';
+}
+
+// ----- 保存・読み込み -----
+function serialize(){
+  return { version:1, cols:state.cols, gravity:state.gravity,
+    tiles: state.tiles.map(({id,name,path,size,x,y}) => ({id,name,path,size,x,y})) };
+}
+function save(){
+  const s = JSON.stringify(serialize(), null, 1);
+  jsonBox.value = s;
+  try { localStorage.setItem(KEY, s); } catch(_) {}
+}
+function syncControls(){
+  document.getElementById('cols').value = String(state.cols);
+  document.getElementById('gravity').checked = state.gravity;
+  document.getElementById('showGrid').checked = state.showGrid;
+}
+function applyLoaded(raw){
+  const s = sanitize(raw);
+  state.cols = s.cols; state.gravity = s.gravity;
+  state.tiles = s.gravity ? compact(s.tiles) : s.tiles;
+  state.nextId = state.tiles.reduce((m,t) => Math.max(m, t.id), 0) + 1;
+  syncControls();
+}
+function commit(){ save(); render(); }
+
+// ----- タイル追加 -----
+const NAMES = ['Chrome','Brave','Firefox','Becky!','WiredFrame','shotkey','DISC.TOC','Lookover','Tote','Steam','Blender','Affinity','AutoHotkey','7-Zip','Android Studio','Ollama'];
+let nameIdx = 0;
+function addTile(name, size, path, at){
+  const s = SIZES[size];
+  const t = { id:state.nextId++, name, path:path || '', size, x:0, y:0, w:s.w, h:s.h };
+  const pos = at || findFree(state.tiles, size, state.cols);
+  state.tiles = moveTile([...state.tiles, t], t.id, pos.x, pos.y, state.cols, state.gravity);
+}
+
+// ----- ドラッグ移動 -----
+area.addEventListener('pointerdown', e => {
+  if(e.button !== 0) return;
+  const el = e.target.closest('.tile'); if(!el) return;
+  const id = +el.dataset.id;
+  const t = state.tiles.find(t => t.id === id); if(!t) return;
+  const rect = area.getBoundingClientRect();
+  drag = { id, pointerId:e.pointerId, startX:e.clientX, startY:e.clientY,
+           offX:e.clientX - rect.left - t.x*STEP, offY:e.clientY - rect.top - t.y*STEP,
+           active:false, preview:null };
+  el.setPointerCapture(e.pointerId);
+});
+area.addEventListener('pointermove', e => {
+  if(!drag || e.pointerId !== drag.pointerId) return;
+  if(!drag.active){
+    if(Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 5) return;
+    drag.active = true;
+  }
+  const rect = area.getBoundingClientRect();
+  const px = e.clientX - rect.left - drag.offX, py = e.clientY - rect.top - drag.offY;
+  drag.preview = moveTile(state.tiles, drag.id, px/STEP, py/STEP, state.cols, state.gravity);
+  render(drag.preview, { id:drag.id, px, py });
+});
+function endDrag(commitIt){
+  if(!drag) return;
+  if(commitIt && drag.active && drag.preview){ state.tiles = drag.preview; save(); }
+  drag = null; render();
+}
+area.addEventListener('pointerup', e => { if(drag && e.pointerId === drag.pointerId) endDrag(true); });
+area.addEventListener('pointercancel', e => { if(drag && e.pointerId === drag.pointerId) endDrag(false); });
+window.addEventListener('keydown', e => { if(e.key === 'Escape'){ endDrag(false); closeMenu(); } });
+
+// ----- 右クリックメニュー -----
+function closeMenu(){ menu.style.display = 'none'; }
+document.addEventListener('pointerdown', e => { if(!menu.contains(e.target)) closeMenu(); }, true);
+area.addEventListener('contextmenu', e => {
+  const el = e.target.closest('.tile'); if(!el) return;
+  e.preventDefault();
+  if(drag) return;
+  const id = +el.dataset.id;
+  const t = state.tiles.find(t => t.id === id); if(!t) return;
+  menu.innerHTML = '';
+  for(const k of ['S','M','W','L']){
+    const b = document.createElement('button');
+    b.textContent = SIZE_LABEL[k] + (k === t.size ? ' ✓' : '');
+    b.onclick = () => { state.tiles = resizeTile(state.tiles, id, k, state.cols, state.gravity); commit(); closeMenu(); };
+    menu.appendChild(b);
+  }
+  const del = document.createElement('button');
+  del.textContent = '削除';
+  del.onclick = () => {
+    const rest = state.tiles.filter(x => x.id !== id);
+    state.tiles = state.gravity ? compact(rest) : rest;
+    commit(); closeMenu();
+  };
+  menu.appendChild(del);
+  menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+  menu.style.display = 'flex';
+});
+
+// ----- ファイルのドロップ -----
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  const files = [...(e.dataTransfer ? e.dataTransfer.files : [])];
+  if(!files.length) return;
+  const rect = area.getBoundingClientRect();
+  const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+  files.forEach((f, i) => {
+    const name = f.name.replace(/\.[^.]+$/, '');
+    const at = (i === 0 && inside)
+      ? { x:(e.clientX - rect.left)/STEP - 1, y:(e.clientY - rect.top)/STEP - 1 } : null;
+    addTile(name, 'M', f.name, at);
+  });
+  commit();
+});
+
+// ----- コントロール -----
+document.getElementById('cols').onchange = e => {
+  state.cols = +e.target.value;
+  const s = settle(state.tiles, state.cols);
+  state.tiles = state.gravity ? compact(s) : s;
+  commit();
+};
+document.getElementById('gravity').onchange = e => {
+  state.gravity = e.target.checked;
+  if(state.gravity) state.tiles = compact(state.tiles);
+  commit();
+};
+document.getElementById('showGrid').onchange = e => { state.showGrid = e.target.checked; render(); };
+document.getElementById('addM').onclick = () => { addTile(NAMES[nameIdx++ % NAMES.length], 'M'); commit(); };
+document.getElementById('addS4').onclick = () => { for(let i = 0; i < 4; i++) addTile(NAMES[nameIdx++ % NAMES.length], 'S'); commit(); };
+document.getElementById('clear').onclick = () => { if(confirm('全部消しますか？')){ state.tiles = []; commit(); } };
+document.getElementById('load').onclick = () => {
+  try { applyLoaded(JSON.parse(jsonBox.value)); commit(); }
+  catch(err){ alert('JSONを読み込めませんでした: ' + err.message); }
+};
+
+// ----- 起動 -----
+(function init(){
+  let loaded = false;
+  try {
+    const s = localStorage.getItem(KEY);
+    if(s){ applyLoaded(JSON.parse(s)); loaded = true; }
+  } catch(_) {}
+  if(!loaded){
+    [['Chrome','S'],['Brave','S'],['Becky!','M'],['WiredFrame','M'],['shotkey','M'],['DISC.TOC','M'],['Mail','W']]
+      .forEach(([n,s]) => addTile(n, s));
+  }
+  syncControls();
+  commit();
+})();
+</script>
+</body>
+</html>
