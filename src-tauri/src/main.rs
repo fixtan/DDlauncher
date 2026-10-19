@@ -261,6 +261,8 @@ fn show_window(app: &AppHandle) {
     let s = app.state::<AppState>().settings.lock().unwrap().clone();
     place(&win, &s, app);
     *app.state::<AppState>().last_shown.lock().unwrap() = Some(Instant::now());
+    // 開く前に画面の状態（検索・実行モード）を初期化させる。ホットキーの検索表示はこの後に届く
+    let _ = app.emit("ddl-hidden", ());
     let _ = win.show();
     let _ = win.set_focus();
     log(
@@ -287,6 +289,7 @@ fn hide_window(app: &AppHandle, reason: &str) {
     };
     if win.is_visible().unwrap_or(false) {
         let _ = win.hide();
+        let _ = app.emit("ddl-hidden", ()); // 画面側で検索・実行モードを片付ける
         let st = app.state::<AppState>();
         *st.last_hidden.lock().unwrap() = Some(Instant::now());
         log(app, format!("hide ({reason})"));
@@ -547,14 +550,29 @@ async fn get_icon(app: AppHandle, path: String, size: Option<u32>) -> Result<Str
 }
 
 // .lnk を、ダブルクリックしたときと同じ扱いで開く
-#[cfg(windows)]
 fn shell_open(path: &str) -> Result<(), String> {
+    shell_exec("open", path)
+}
+
+fn shell_exec(verb: &str, path: &str) -> Result<(), String> {
+    shell_exec_args(verb, path, "")
+}
+
+// verb: "open"（普通に開く）/ "runas"（管理者として実行）。params: 引数（なければ空）
+#[cfg(windows)]
+fn shell_exec_args(verb: &str, path: &str, params: &str) -> Result<(), String> {
     use windows::core::PCWSTR;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
     let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
-    let verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    let verb_w: Vec<u16> = verb.encode_utf16().chain(std::iter::once(0)).collect();
+    let params_w: Vec<u16> = params.encode_utf16().chain(std::iter::once(0)).collect();
+    let params_ptr = if params.is_empty() {
+        PCWSTR::null()
+    } else {
+        PCWSTR(params_w.as_ptr())
+    };
     // exe などは、そのフォルダを作業フォルダにして起動する（.lnk は自分の指定に任せる）
     let p = Path::new(path);
     let is_link = p
@@ -577,9 +595,9 @@ fn shell_open(path: &str) -> Result<(), String> {
     let r = unsafe {
         ShellExecuteW(
             None,
-            PCWSTR(verb.as_ptr()),
+            PCWSTR(verb_w.as_ptr()),
             PCWSTR(wide.as_ptr()),
-            PCWSTR::null(),
+            params_ptr,
             dir_ptr,
             SW_SHOWNORMAL,
         )
@@ -588,13 +606,18 @@ fn shell_open(path: &str) -> Result<(), String> {
     let code = r.0 as isize;
     if code > 32 {
         Ok(())
+    } else if code == 2 || code == 3 {
+        Err(format!("見つかりません: {path}"))
+    } else if verb == "runas" && code == 5 {
+        // 管理者確認（UAC）で「いいえ」を選んだとき、ここに来ることが多い
+        Err("管理者としての実行が、キャンセルされました".to_string())
     } else {
         Err(format!("ShellExecuteW が失敗 (code {code})"))
     }
 }
 
 #[cfg(not(windows))]
-fn shell_open(_path: &str) -> Result<(), String> {
+fn shell_exec_args(_verb: &str, _path: &str, _params: &str) -> Result<(), String> {
     Err("起動は Windows のみ".to_string())
 }
 
@@ -638,6 +661,117 @@ fn launch(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<()
         }
         Err(e) => {
             log(&app, format!("起動に失敗: {path} ({e})"));
+            Err(e)
+        }
+    }
+}
+
+// 管理者として実行する（右クリックメニュー）。画面側で、ストアアプリ・フォルダには出さない
+#[tauri::command]
+fn launch_admin(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<(), String> {
+    match shell_exec("runas", &path) {
+        Ok(()) => {
+            log(&app, format!("管理者として起動: {path}"));
+            record_usage(&state, &path);
+            hide_window(&app, "管理者として起動した");
+            Ok(())
+        }
+        Err(e) => {
+            log(&app, format!("管理者としての起動に失敗: {path} ({e})"));
+            Err(e)
+        }
+    }
+}
+
+// 「ファイル名を指定して実行」の入力を、ファイル部分と引数に分ける。
+//   "C:\Program Files\a.exe" -x  → ("C:\Program Files\a.exe", "-x")
+//   C:\Program Files\a.exe       → 丸ごとファイルとして存在すれば、そのまま
+//   notepad foo.txt               → ("notepad", "foo.txt")
+fn split_command_line(s: &str) -> (String, String) {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix('"') {
+        if let Some(i) = rest.find('"') {
+            return (rest[..i].to_string(), rest[i + 1..].trim().to_string());
+        }
+    }
+    if Path::new(s).exists() {
+        return (s.to_string(), String::new());
+    }
+    match s.find(char::is_whitespace) {
+        Some(i) => (s[..i].to_string(), s[i..].trim().to_string()),
+        None => (s.to_string(), String::new()),
+    }
+}
+
+// ファイル名を指定して実行（Win+R 相当）。%USERPROFILE% などは展開する。admin なら管理者として実行
+#[tauri::command]
+fn run_dialog(app: AppHandle, line: String, admin: bool) -> Result<(), String> {
+    let line = line.trim().to_string();
+    if line.is_empty() {
+        return Err("入力が空です".to_string());
+    }
+    let (file, params) = split_command_line(&icons::expand_env(&line));
+    let verb = if admin { "runas" } else { "open" };
+    match shell_exec_args(verb, &file, &params) {
+        Ok(()) => {
+            log(
+                &app,
+                format!("実行{}: {line}", if admin { "（管理者）" } else { "" }),
+            );
+            hide_window(&app, "実行した");
+            Ok(())
+        }
+        Err(e) => {
+            log(&app, format!("実行に失敗: {line} ({e})"));
+            Err(e)
+        }
+    }
+}
+
+// エクスプローラーで、実体のあるファイル（.lnk なら指す先）を選んだ状態で開く
+#[cfg(windows)]
+fn reveal_in_explorer(path: &str) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    if path.starts_with(appsfolder::PREFIX) {
+        return Err("ストアアプリには、ファイルの場所がありません".to_string());
+    }
+    let p = Path::new(path);
+    let is_lnk = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("lnk"));
+    // .lnk は指す先を選ぶ。指す先が取れないとき（ストア系のショートカットなど）は .lnk 自身を選ぶ
+    let target: std::path::PathBuf = if is_lnk {
+        icons::lnk_target(p).unwrap_or_else(|| p.to_path_buf())
+    } else {
+        p.to_path_buf()
+    };
+    if !target.exists() {
+        return Err(format!("見つかりません: {}", target.display()));
+    }
+    // explorer /select,"パス"（パスに空白や & があっても通るよう、引数を自分で組み立てる）
+    std::process::Command::new("explorer.exe")
+        .raw_arg(format!("/select,\"{}\"", target.display()))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(windows))]
+fn reveal_in_explorer(_path: &str) -> Result<(), String> {
+    Err("Windows のみ".to_string())
+}
+
+#[tauri::command]
+fn reveal(app: AppHandle, path: String) -> Result<(), String> {
+    match reveal_in_explorer(&path) {
+        Ok(()) => {
+            log(&app, format!("ファイルの場所を開いた: {path}"));
+            hide_window(&app, "ファイルの場所を開いた");
+            Ok(())
+        }
+        Err(e) => {
+            log(&app, format!("ファイルの場所を開けない: {path} ({e})"));
             Err(e)
         }
     }
@@ -1183,6 +1317,9 @@ fn main() {
             list_apps,
             get_icon,
             launch,
+            launch_admin,
+            reveal,
+            run_dialog,
             get_recent,
             export_backup,
             import_backup,
@@ -1261,6 +1398,28 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn split_command_line_cases() {
+        assert_eq!(
+            split_command_line("\"C:\\Program Files\\a.exe\" -x --y"),
+            ("C:\\Program Files\\a.exe".to_string(), "-x --y".to_string())
+        );
+        assert_eq!(
+            split_command_line("  notepad foo.txt  "),
+            ("notepad".to_string(), "foo.txt".to_string())
+        );
+        assert_eq!(
+            split_command_line("regedit"),
+            ("regedit".to_string(), String::new())
+        );
+        // 丸ごと存在するパスは、空白があっても分けない
+        let dir = std::env::temp_dir().join(format!("ddl split {}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.to_string_lossy().into_owned();
+        assert_eq!(split_command_line(&p), (p.clone(), String::new()));
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn inspect_path_names() {

@@ -42,6 +42,19 @@
   document.addEventListener('pointerdown', (e) => { if (!menu.contains(e.target)) closeMenu(); }, true);
   document.addEventListener('contextmenu', (e) => e.preventDefault()); // ブラウザ標準のメニューは出さない
 
+  // 本家のスタートメニューの「その他」にあたる項目（管理者として実行 / ファイルの場所を開く）。
+  // ストアアプリ（shell:AppsFolder\...）には、実体のファイルも管理者実行もないので出さない。
+  // 管理者実行は、実行できるもの（exe・ショートカット・バッチ）だけ。フォルダや書類には出さない。
+  window.DDL.pathMenuItems = (path) => {
+    if (!path || /^shell:/i.test(path)) return [];
+    const items = [];
+    if (/\.(exe|lnk|bat|cmd|com|msi)$/i.test(path)) {
+      items.push({ label: '管理者として実行', fn: () => invoke('launch_admin', { path }).catch(() => {}) });
+    }
+    items.push({ label: 'ファイルの場所を開く', fn: () => invoke('reveal', { path }).catch(() => {}) });
+    return items;
+  };
+
   // ---------- 描画
   function hue(str) {
     let h = 0;
@@ -217,6 +230,7 @@
         ? { label: 'スタートからピン留めを外す', fn: () => removeTile(have.id) }
         : { label: 'スタートにピン留めする', fn: () => addTile(node.name, node.path) },
     ];
+    items.push(...window.DDL.pathMenuItems(node.path));
     if (window.DDL.railMenuItems) items.push(window.DDL.railMenuItems(node));
     if (window.DDL.bookmarkMenuItems) items.push(window.DDL.bookmarkMenuItems(node));
     showMenu(x, y, items);
@@ -373,6 +387,8 @@
       fn: () => { state.tiles = resizeTile(state.tiles, id, k, state.cols, state.gravity); commit(); },
     }));
     items.push('-', { label: 'スタートからピン留めを外す', fn: () => removeTile(id) });
+    const pm = window.DDL.pathMenuItems(t.path);
+    if (pm.length) items.push('-', ...pm);
     showMenu(e.clientX, e.clientY, items);
   });
 

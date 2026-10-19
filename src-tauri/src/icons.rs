@@ -40,7 +40,7 @@ fn cache_key(path: &Path, size: u32) -> String {
 }
 
 // %NAME% を環境変数で置き換える（見つからないものはそのまま）
-fn expand_env(s: &str) -> String {
+pub fn expand_env(s: &str) -> String {
     let mut out = String::new();
     let mut rest = s;
     while let Some(i) = rest.find('%') {
@@ -94,6 +94,17 @@ fn extract_png(_path: &Path, _size: u32) -> Result<Vec<u8>, String> {
 #[cfg(windows)]
 fn extract_png(path: &Path, size: u32) -> Result<Vec<u8>, String> {
     imp::extract(path, size as i32)
+}
+
+// .lnk の指す先（実在するものだけ）。「ファイルの場所を開く」で使う。.lnk 以外・読めない・先がない場合は None。
+#[cfg(windows)]
+pub fn lnk_target(path: &Path) -> Option<std::path::PathBuf> {
+    imp::lnk_target(path)
+}
+
+#[cfg(not(windows))]
+pub fn lnk_target(_path: &Path) -> Option<std::path::PathBuf> {
+    None
 }
 
 // Windows 実装
@@ -202,6 +213,18 @@ mod imp {
     fn from_wide(buf: &[u16]) -> String {
         let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
         String::from_utf16_lossy(&buf[..n])
+    }
+
+    // ワーカースレッド以外（コマンドの呼び出しスレッド）から呼ぶので、COM をここで初期化する
+    pub fn lnk_target(path: &Path) -> Option<PathBuf> {
+        unsafe {
+            let inited = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+            let t = resolve_lnk(path).and_then(|i| i.target);
+            if inited {
+                CoUninitialize();
+            }
+            t.filter(|p| p.exists())
+        }
     }
 
     // .lnk の中身（アイコンの指定と、指す先）を読む

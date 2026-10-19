@@ -68,13 +68,13 @@ button:hover { background: #363b48; }
 }
 #railItems { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; width: 100%; align-items: center; scrollbar-width: none; }
 #railBottom { display: flex; flex-direction: column; gap: 2px; align-items: center; }
-.railBtn, #openSettings, #openSearch, #openBookmarks {
+.railBtn, #openSettings, #openSearch, #openRun, #openBookmarks {
   width: 36px; height: 36px; flex: none; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: 6px; background: transparent;
 }
-.railBtn:hover, #openSettings:hover, #openSearch:hover, #openBookmarks:hover, #openBookmarks.active { background: rgba(255, 255, 255, .12); }
-#openSettings, #openSearch, #openBookmarks { font-size: 18px; color: var(--muted); }
-#openSettings:hover, #openSearch:hover, #openBookmarks:hover { color: var(--text); }
+.railBtn:hover, #openSettings:hover, #openSearch:hover, #openRun:hover, #openBookmarks:hover, #openBookmarks.active, #openRun.active { background: rgba(255, 255, 255, .12); }
+#openSettings, #openSearch, #openRun, #openBookmarks { font-size: 18px; color: var(--muted); }
+#openSettings:hover, #openSearch:hover, #openRun:hover, #openBookmarks:hover { color: var(--text); }
 #rail.drop-over { background: rgba(76, 194, 255, .22); outline: 2px dashed var(--accent); outline-offset: -3px; }
 .railRow { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, .07); }
 .railRowText { flex: 1; min-width: 0; }
@@ -160,6 +160,7 @@ button:hover { background: #363b48; }
 .apps.searching > #results { display: block; }
 #results .row.sel { background: rgba(76, 194, 255, .28); }
 .searchHint { padding: 10px 8px; }
+.searchHint.err { color: #ff8a8a; }
 
 .hotkeyRow label { flex-wrap: wrap; }
 #hotkey { width: 220px; background: #2b2f3a; color: var(--text); border: 1px solid rgba(255, 255, 255, .15); border-radius: 4px; padding: 4px 8px; font: inherit; }

@@ -48,12 +48,57 @@
   const results = window.DDL.resultsBox; // apps.js が #apps の中に用意する
   if (!bar || !input || !results) return;
 
+  const runBtn = document.getElementById('openRun');
+  const PH_SEARCH = input.placeholder;
+  const PH_RUN = 'ファイル名を指定して実行（例: regedit, cmd, shell:startup, C:\\Tools）';
+  const RUN_HELP = 'Enter で実行、Ctrl+Shift+Enter で管理者として実行、Esc で閉じる。前回の入力は残ります。';
+  const LAST_KEY = 'ddl-last-run';
   let sel = -1;
   let current = [];
+  let mode = 'search'; // 'search'（アプリ検索）/ 'run'（ファイル名を指定して実行）
 
   function isOpen() { return !bar.hidden; }
+  const lastRun = () => { try { return localStorage.getItem(LAST_KEY) || ''; } catch (_) { return ''; } };
+  const saveLast = (v) => { try { localStorage.setItem(LAST_KEY, v); } catch (_) {} };
+
+  function setMode(m) {
+    mode = m;
+    input.placeholder = m === 'run' ? PH_RUN : PH_SEARCH;
+    if (runBtn) runBtn.classList.toggle('active', m === 'run');
+  }
+
+  function hint(text, err) {
+    results.textContent = '';
+    const m = document.createElement('div');
+    m.className = 'muted searchHint' + (err ? ' err' : '');
+    m.textContent = text;
+    results.appendChild(m);
+  }
+
+  // 🚀: ファイル名を指定して実行。前回の入力を入れて、全選択しておく（打てば置き換わる）
+  function openRun() {
+    setMode('run');
+    bar.hidden = false;
+    appsEl.classList.add('searching');
+    current = [];
+    sel = -1;
+    input.value = lastRun();
+    input.focus();
+    input.select();
+    hint(RUN_HELP);
+  }
+
+  function runNow(admin) {
+    const line = input.value.trim();
+    if (!line) return;
+    saveLast(line);
+    invoke('run_dialog', { line, admin })
+      .then(() => close())
+      .catch((e) => hint(String(e), true)); // 失敗したら入力を残して、直せるようにする
+  }
 
   function open(initial) {
+    setMode('search');
     bar.hidden = false;
     appsEl.classList.add('searching');
     input.focus();
@@ -67,6 +112,7 @@
   }
 
   function close() {
+    setMode('search');
     bar.hidden = true;
     appsEl.classList.remove('searching');
     input.value = '';
@@ -82,6 +128,7 @@
   }
 
   function update() {
+    if (mode === 'run') { hint(RUN_HELP); return; } // 入力で絞り込まない。直前のエラー表示は消す
     const apps = window.DDL.allApps ? window.DDL.allApps() : [];
     current = search(apps, input.value);
     results.textContent = '';
@@ -123,7 +170,8 @@
       highlight();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      launchSelected();
+      if (mode === 'run') runNow(e.ctrlKey && e.shiftKey);
+      else launchSelected();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation(); // ランチャー自体は閉じず、検索だけ閉じる
@@ -136,8 +184,14 @@
   window.DDL.openSearch = () => open(); // ホットキーで開いたとき（Rust から）
   try { window.__TAURI__.event.listen('ddl-open-search', () => open()); } catch (_) {}
 
+  // ウィンドウを閉じたら、検索・実行の入力を片付けて、開き直したときは最初の状態（一覧）に戻す
+  try { window.__TAURI__.event.listen('ddl-hidden', () => close()); } catch (_) {}
+  // 非表示になった時点でも片付ける（Rust からのイベントが届かない場合の保険）
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') close(); });
+  if (runBtn) runBtn.addEventListener('click', () => (isOpen() && mode === 'run' ? close() : openRun()));
+
   const btn = document.getElementById('openSearch');
-  if (btn) btn.addEventListener('click', () => (isOpen() ? close() : open()));
+  if (btn) btn.addEventListener('click', () => (isOpen() && mode === 'search' ? close() : open()));
 
   window.addEventListener('keydown', (e) => {
     const dlg = document.getElementById('dialog');
